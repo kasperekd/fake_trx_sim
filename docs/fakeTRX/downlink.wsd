@@ -1,45 +1,109 @@
 @startuml
-participant "osmo-bts" as BTS
-participant "FakeTRX (BTS side)" as FTRX_BTS
-participant "BurstForwarder" as BF
-participant "FakeTRX (MS side)" as FTRX_MS
-participant "trxcon" as MS
+!theme plain
+skinparam dpi 300
+skinparam defaultFontSize 14
+skinparam sequenceMessageAlign center
 
-note over FTRX_BTS, FTRX_MS
-  Both FakeTRX instances inherit from Transceiver class
-  and use DATAInterface for message handling
+box "BTS Side" #LightBlue
+participant "osmo-bts" as BTS
+participant "FakeTRX (BTS)\n[fake_trx.py]" as FTRX_BTS
+end box
+
+box "Burst Forwarding" #LightGreen
+participant "BurstForwarder\n[burst_fwd.py]" as BF
+end box
+
+box "MS Side" #LightPink
+participant "FakeTRX (MS)\n[fake_trx.py]" as FTRX_MS
+participant "trxcon" as MS
+end box
+
+note over BTS, MS
+  Поддерживаемые типы модуляции [data_msg.py]:
+  ModGMSK(0b0000)     - 148 бит - базовая модуляция GSM
+  Mod8PSK(0b0100)     - 444 бит - EDGE модуляция
+  ModGMSK_AB(0b0110)  - 148 бит - для Access Burst
+  Mod16QAM(0b1000)    - 592 бит - для высокой скорости
+  Mod32QAM(0b1010)    - 740 бит - для высокой скорости
+  ModAQPSK(0b1100)    - 296 бит - адаптивная модуляция
 end note
 
-BTS -> FTRX_BTS: UDP data message
+BTS -> FTRX_BTS: TxMsg [data_msg.py]
+note right
+  Структура TxMsg:
+  - ver: версия (4 бита)
+  - tn: таймслот (3 бита)
+  - fn: номер фрейма (32 бита)
+  - pwr: мощность (8 бит)
+  - burst: данные (148-740 бит)
+end note
+
 activate FTRX_BTS
 
-FTRX_BTS -> FTRX_BTS: recv_data_msg()
-note right: Receives raw data via\nDATAInterface.recv_tx_msg()
+FTRX_BTS -> FTRX_BTS: recv_data_msg() [fake_trx.py]
+note right
+  1. Получение данных через DATAInterface
+  2. Проверка состояния трансивера
+  3. Декодирование TxMsg
+  4. Проверка версии протокола
+end note
 
-FTRX_BTS -> BF: forward_msg(src_trx, rx_msg)
+FTRX_BTS -> BF: forward_msg(src_trx, rx_msg) [burst_fwd.py]
 activate BF
 
-BF -> BF: Check frequencies match
+BF -> BF: Проверка частот
 note right
-  1. Get tx_freq from source TRX
-  2. Check if target TRX rx_freq matches
+  1. tx_freq = src_trx.get_tx_freq(fn)
+  2. Поиск трансиверов с rx_freq == tx_freq
+  3. Проверка состояния трансиверов
 end note
 
-BF -> FTRX_MS: handle_data_msg(src_trx, rx_msg, tx_msg)
+BF -> FTRX_MS: handle_data_msg(src_trx, rx_msg, tx_msg) [fake_trx.py]
 activate FTRX_MS
 
-FTRX_MS -> FTRX_MS: Simulate RF parameters
+FTRX_MS -> FTRX_MS: _handle_data_msg_v1() [fake_trx.py]
 note right
-  1. Apply ToA (Timing of Arrival)
-  2. Calculate RSSI
-  3. Set C/I ratio
-  4. Apply Timing Advance
+  1. Определение модуляции по длине burst:
+     - 148 бит -> ModGMSK
+     - 444 бит -> Mod8PSK
+     - 592 бит -> Mod16QAM
+     и т.д.
+  2. Установка параметров TSC
+  3. Расчет C/I
 end note
 
-FTRX_MS -> FTRX_MS: data_if.send_msg()
-note right: Send processed message\nvia DATAInterface
+FTRX_MS -> FTRX_MS: Симуляция RF параметров
+note right
+  1. ToA (Timing of Arrival):
+     - base_toa + random(-threshold, threshold)
+  2. RSSI:
+     - tx_power - path_loss + random(-threshold, threshold)
+  3. C/I:
+     - base_ci + random(-threshold, threshold)
+  4. Timing Advance:
+     - Корректировка временных параметров
+end note
 
-FTRX_MS -> MS: UDP data message
+FTRX_MS -> FTRX_MS: Подготовка RxMsg [data_msg.py]
+note right
+  Структура RxMsg:
+  - ver: версия протокола
+  - tn: номер таймслота
+  - fn: номер фрейма
+  - rssi: уровень сигнала
+  - toa256: время прихода
+  - mod_type: тип модуляции
+  - burst: мягкие биты (-127..127)
+  - ci: отношение C/I
+end note
+
+FTRX_MS -> MS: RxMsg через DATAInterface [data_if.py]
+note right
+  1. Валидация сообщения
+  2. Кодирование в байты
+  3. Отправка через UDP
+end note
+
 deactivate FTRX_MS
 deactivate BF
 deactivate FTRX_BTS
