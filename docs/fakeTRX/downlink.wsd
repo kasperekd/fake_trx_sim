@@ -1,0 +1,47 @@
+@startuml
+participant "osmo-bts" as BTS
+participant "FakeTRX (BTS side)" as FTRX_BTS
+participant "BurstForwarder" as BF
+participant "FakeTRX (MS side)" as FTRX_MS
+participant "trxcon" as MS
+
+note over FTRX_BTS, FTRX_MS
+  Both FakeTRX instances inherit from Transceiver class
+  and use DATAInterface for message handling
+end note
+
+BTS -> FTRX_BTS: UDP data message
+activate FTRX_BTS
+
+FTRX_BTS -> FTRX_BTS: recv_data_msg()
+note right: Receives raw data via\nDATAInterface.recv_tx_msg()
+
+FTRX_BTS -> BF: forward_msg(src_trx, rx_msg)
+activate BF
+
+BF -> BF: Check frequencies match
+note right
+  1. Get tx_freq from source TRX
+  2. Check if target TRX rx_freq matches
+end note
+
+BF -> FTRX_MS: handle_data_msg(src_trx, rx_msg, tx_msg)
+activate FTRX_MS
+
+FTRX_MS -> FTRX_MS: Simulate RF parameters
+note right
+  1. Apply ToA (Timing of Arrival)
+  2. Calculate RSSI
+  3. Set C/I ratio
+  4. Apply Timing Advance
+end note
+
+FTRX_MS -> FTRX_MS: data_if.send_msg()
+note right: Send processed message\nvia DATAInterface
+
+FTRX_MS -> MS: UDP data message
+deactivate FTRX_MS
+deactivate BF
+deactivate FTRX_BTS
+
+@enduml
